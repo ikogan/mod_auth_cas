@@ -73,6 +73,9 @@
 #define CAS_DEFAULT_ATTRIBUTE_PREFIX "CAS_"
 #define CAS_DEFAULT_VALIDATE_DEPTH 9
 #define CAS_DEFAULT_CA_PATH "/etc/ssl/certs/"
+#define CAS_DEFAULT_CLIENT_CERT NULL
+#define CAS_DEFAULT_CLIENT_KEY NULL
+#define CAS_DEFAULT_CLIENT_CERT_TYPE "PEM"
 #define CAS_DEFAULT_COOKIE_PATH "/dev/null"
 #define CAS_DEFAULT_LOGIN_URL NULL
 #define CAS_DEFAULT_VALIDATE_V1_URL NULL
@@ -121,6 +124,9 @@ typedef struct cas_cfg {
 	unsigned int CASAuthoritative;
 	unsigned int CASValidateSAML;
 	char *CASCertificatePath;
+    char *CASClientCert;
+    char *CASClientKey;
+    char *CASClientCertType;
 	char *CASCookiePath;
 	char *CASCookieDomain;
 	char *CASAttributeDelimiter;
@@ -163,7 +169,8 @@ typedef enum {
 	cmd_loginurl, cmd_validateurl, cmd_proxyurl, cmd_cookie_entropy, cmd_session_timeout,
 	cmd_idle_timeout, cmd_cache_interval, cmd_cookie_domain, cmd_cookie_httponly,
 	cmd_sso, cmd_validate_saml, cmd_attribute_delimiter, cmd_attribute_prefix,
-	cmd_root_proxied_as, cmd_authoritative
+	cmd_root_proxied_as, cmd_authoritative, cmd_client_cert, cmd_client_key,
+	cmd_client_cert_type
 } valid_cmds;
 
 module AP_MODULE_DECLARE_DATA auth_cas_module;
