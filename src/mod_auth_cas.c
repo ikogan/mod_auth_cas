@@ -74,6 +74,9 @@ static void *cas_create_server_config(apr_pool_t *pool, server_rec *svr)
 	c->CASValidateDepth = CAS_DEFAULT_VALIDATE_DEPTH;
 	c->CASAllowWildcardCert = CAS_DEFAULT_ALLOW_WILDCARD_CERT;
 	c->CASCertificatePath = CAS_DEFAULT_CA_PATH;
+	c->CASClientCert = CAS_DEFAULT_CLIENT_CERT;
+	c->CASClientKey= CAS_DEFAULT_CLIENT_KEY;
+	c->CASClientCertType= CAS_DEFAULT_CLIENT_CERT_TYPE;
 	c->CASCookiePath = CAS_DEFAULT_COOKIE_PATH;
 	c->CASCookieEntropy = CAS_DEFAULT_COOKIE_ENTROPY;
 	c->CASTimeout = CAS_DEFAULT_COOKIE_TIMEOUT;
@@ -109,6 +112,9 @@ static void *cas_merge_server_config(apr_pool_t *pool, void *BASE, void *ADD)
 	c->CASValidateDepth = (add->CASValidateDepth != CAS_DEFAULT_VALIDATE_DEPTH ? add->CASValidateDepth : base->CASValidateDepth);
 	c->CASAllowWildcardCert = (add->CASAllowWildcardCert != CAS_DEFAULT_ALLOW_WILDCARD_CERT ? add->CASAllowWildcardCert : base->CASAllowWildcardCert);
 	c->CASCertificatePath = (apr_strnatcasecmp(add->CASCertificatePath,CAS_DEFAULT_CA_PATH) != 0 ? add->CASCertificatePath : base->CASCertificatePath);
+	c->CASClientCert = (add->CASClientCert != CAS_DEFAULT_CLIENT_CERT ? add->CASClientCert : base->CASClientCert);
+	c->CASClientKey = (add->CASClientKey != CAS_DEFAULT_CLIENT_KEY ? add->CASClientKey : base->CASClientKey);
+	c->CASClientCertType = (apr_strnatcasecmp(add->CASClientCertType,CAS_DEFAULT_CLIENT_CERT_TYPE) != 0 ? add->CASClientCertType: base->CASClientCertType);
 	c->CASCookiePath = (apr_strnatcasecmp(add->CASCookiePath, CAS_DEFAULT_COOKIE_PATH) != 0 ? add->CASCookiePath : base->CASCookiePath);
 	c->CASCookieEntropy = (add->CASCookieEntropy != CAS_DEFAULT_COOKIE_ENTROPY ? add->CASCookieEntropy : base->CASCookieEntropy);
 	c->CASTimeout = (add->CASTimeout != CAS_DEFAULT_COOKIE_TIMEOUT ? add->CASTimeout : base->CASTimeout);
@@ -258,6 +264,29 @@ static const char *cfg_readCASParameter(cmd_parms *cmd, void *cfg, const char *v
 			if(f.filetype != APR_REG && f.filetype != APR_DIR)
 				return(apr_psprintf(cmd->pool, "MOD_AUTH_CAS: Certificate Authority file '%s' is not a regular file or directory", value));
 			c->CASCertificatePath = apr_pstrdup(cmd->pool, value);
+		break;
+		case cmd_client_cert:
+			if(apr_stat(&f, value, APR_FINFO_TYPE, cmd->temp_pool) == APR_INCOMPLETE)
+				return(apr_psprintf(cmd->pool, "MOD_AUTH_CAS: Could not find Client Certificate file '%s'", value));
+
+			if(f.filetype != APR_REG)
+				return(apr_psprintf(cmd->pool, "MOD_AUTH_CAS: Client Certificate file '%s' is not a regular file", value));
+			c->CASClientCert = apr_pstrdup(cmd->pool, value);
+		break;
+		case cmd_client_key:
+			if(apr_stat(&f, value, APR_FINFO_TYPE, cmd->temp_pool) == APR_INCOMPLETE)
+				return(apr_psprintf(cmd->pool, "MOD_AUTH_CAS: Could not find Client Key file '%s'", value));
+
+			if(f.filetype != APR_REG)
+				return(apr_psprintf(cmd->pool, "MOD_AUTH_CAS: Client Key file '%s' is not a regular file", value));
+			c->CASClientKey = apr_pstrdup(cmd->pool, value);
+		break;
+		case cmd_client_cert_type:
+			if(apr_strnatcmp(value, "PEM") != 0 &&
+			   apr_strnatcmp(value, "DER") != 0) {
+				return(apr_psprintf(cmd->pool, "MOD_AUTH_CAS: Client Cert Type '%s' is not 'PEM' or 'DER'", value));
+			}
+			c->CASClientCertType = apr_pstrdup(cmd->pool, value);
 		break;
 		case cmd_validate_depth:
 			i = atoi(value);
@@ -1637,6 +1666,10 @@ static char *getResponseFromServer (request_rec *r, cas_cfg *c, char *ticket)
 	}
 
 	curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, (c->CASValidateServer != FALSE ? 2L : 0L));
+	curl_easy_setopt(curl, CURLOPT_SSLCERTTYPE, c->CASClientCertType);
+	curl_easy_setopt(curl, CURLOPT_SSLKEYTYPE, c->CASClientCertType);
+	curl_easy_setopt(curl, CURLOPT_SSLCERT, c->CASClientCert);
+	curl_easy_setopt(curl, CURLOPT_SSLKEY, c->CASClientKey);
 
 	curl_easy_setopt(curl, CURLOPT_USERAGENT, "mod_auth_cas 1.0.9.1");
 
@@ -2119,6 +2152,9 @@ static const command_rec cas_cmds [] = {
 	AP_INIT_TAKE1("CASValidateDepth", cfg_readCASParameter, (void *) cmd_validate_depth, RSRC_CONF, "Define the number of chained certificates required for a successful validation"),
 	AP_INIT_TAKE1("CASAllowWildcardCert", cfg_readCASParameter, (void *) cmd_wildcard_cert, RSRC_CONF, "Allow wildcards in certificates when performing validation (e.g. *.example.com) (On or Off)"),
 	AP_INIT_TAKE1("CASCertificatePath", cfg_readCASParameter, (void *) cmd_ca_path, RSRC_CONF, "Path to the X509 certificate for the CASServer Certificate Authority"),
+	AP_INIT_TAKE1("CASClientCert", cfg_readCASParameter, (void *) cmd_client_cert, RSRC_CONF, "Path to the X509 certificate for Client Authentication"),
+	AP_INIT_TAKE1("CASClientKey", cfg_readCASParameter, (void *) cmd_client_key, RSRC_CONF, "Path to the X509 key for Client Authentication"),
+	AP_INIT_TAKE1("CASClientCertType", cfg_readCASParameter, (void *) cmd_client_cert_type, RSRC_CONF, "The type of client SSL cert/key for Client Authentication"),
 
 	/* pertinent CAS urls */
 	AP_INIT_TAKE1("CASLoginURL", cfg_readCASParameter, (void *) cmd_loginurl, RSRC_CONF, "Define the CAS Login URL (ex: https://login.example.com/cas/login)"),
