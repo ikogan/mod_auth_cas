@@ -1800,6 +1800,7 @@ char *getResponseFromServer (request_rec *r, cas_cfg *c, char *ticket)
 
 	curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 2L);
 	curl_easy_setopt(curl, CURLOPT_SSLCERTTYPE, c->CASClientCertType);
+	curl_easy_setopt(curl, CURLOPT_SSLKEYTYPE, c->CASClientCertType);
 	curl_easy_setopt(curl, CURLOPT_SSLCERT, c->CASClientCert);
 	curl_easy_setopt(curl, CURLOPT_SSLKEY, c->CASClientKey);
 	curl_easy_setopt(curl, CURLOPT_USERAGENT, "mod_auth_cas 1.0.10");
