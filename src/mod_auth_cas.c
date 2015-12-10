@@ -119,6 +119,7 @@ void *cas_create_server_config(apr_pool_t *pool, server_rec *svr)
 	c->CASAuthoritative = CAS_DEFAULT_AUTHORITATIVE;
 #endif
 	cas_setURL(pool, &(c->CASLoginURL), CAS_DEFAULT_LOGIN_URL);
+	cas_setURL(pool, &(c->CASLogoutURL), CAS_DEFAULT_LOGOUT_URL);
 	cas_setURL(pool, &(c->CASValidateURL), CAS_DEFAULT_VALIDATE_URL);
 	cas_setURL(pool, &(c->CASProxyValidateURL), CAS_DEFAULT_PROXY_VALIDATE_URL);
 	cas_setURL(pool, &(c->CASRootProxiedAs), CAS_DEFAULT_ROOT_PROXIED_AS_URL);
@@ -153,12 +154,18 @@ void *cas_merge_server_config(apr_pool_t *pool, void *BASE, void *ADD)
 #endif
 	c->CASAttributeDelimiter = (apr_strnatcasecmp(add->CASAttributeDelimiter, CAS_DEFAULT_ATTRIBUTE_DELIMITER) != 0 ? add->CASAttributeDelimiter : base->CASAttributeDelimiter);
 	c->CASAttributePrefix = (apr_strnatcasecmp(add->CASAttributePrefix, CAS_DEFAULT_ATTRIBUTE_PREFIX) != 0 ? add->CASAttributePrefix : base->CASAttributePrefix);
+	c->CASLogoutUseReferer = (add->CASLogoutUseReferer != CAS_DEFAULT_LOGOUT_USE_REFERRER ? add->CASLogoutUseReferer : base->CASLogoutUseReferer);
 
 	/* if add->CASLoginURL == NULL, we want to copy base -- otherwise, copy the one from add, and so on and so forth */
 	if(memcmp(&add->CASLoginURL, &test, sizeof(apr_uri_t)) == 0)
 		memcpy(&c->CASLoginURL, &base->CASLoginURL, sizeof(apr_uri_t));
 	else
 		memcpy(&c->CASLoginURL, &add->CASLoginURL, sizeof(apr_uri_t));
+
+	if(memcmp(&add->CASLogoutURL, &test, sizeof(apr_uri_t)) == 0)
+		memcpy(&c->CASLogoutURL, &base->CASLogoutURL, sizeof(apr_uri_t));
+	else
+		memcpy(&c->CASLogoutURL, &add->CASLogoutURL, sizeof(apr_uri_t));
 
 	if(memcmp(&add->CASValidateURL, &test, sizeof(apr_uri_t)) == 0)
 		memcpy(&c->CASValidateURL, &base->CASValidateURL, sizeof(apr_uri_t));
@@ -306,6 +313,18 @@ const char *cfg_readCASParameter(cmd_parms *cmd, void *cfg, const char *value)
 		case cmd_loginurl:
 			if(cas_setURL(cmd->pool, &(c->CASLoginURL), value) != TRUE)
 				return(apr_psprintf(cmd->pool, "MOD_AUTH_CAS: Login URL '%s' could not be parsed!", value));
+		break;
+		case cmd_logouturl:
+			if(cas_setURL(cmd->pool, &(c->CASLogoutURL), value) != TRUE)
+				return(apr_psprintf(cmd->pool, "MOD_AUTH_CAS: Logout URL '%s' could not be parsed!", value));
+		break;
+		case cmd_logout_use_referrer:
+			if(apr_strnatcasecmp(value, "On") == 0)
+				c->CASLogoutUseReferer = TRUE;
+			else if(apr_strnatcasecmp(value, "Off") == 0)
+				c->CASLogoutUseReferer = FALSE;
+			else
+				return(apr_psprintf(cmd->pool, "MOD_AUTH_CAS: Invalid argument to CASLogoutUseReferer - must be 'On' or 'Off'"));
 		break;
 		case cmd_validateurl:
 			if(cas_setURL(cmd->pool, &(c->CASValidateURL), value) != TRUE)
@@ -536,12 +555,42 @@ char *getCASLoginURL(request_rec *r, cas_cfg *c)
 	return(apr_uri_unparse(r->pool, &(c->CASLoginURL), APR_URI_UNP_OMITUSERINFO|APR_URI_UNP_OMITQUERY));
 }
 
+char *getCASLogoutURL(request_rec *r, cas_cfg *c)
+{
+	apr_uri_t test;
+
+	if(c->CASDebug)
+		ap_log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r, "entering getCASLogoutURL()");
+
+	memset(&test, '\0', sizeof(apr_uri_t));
+	if(memcmp(&c->CASLogoutURL, &test, sizeof(apr_uri_t)) == 0) {
+		ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "MOD_AUTH_CAS: CASLogoutURL null (not set?)");
+		return NULL;
+	}
+
+	/* this is used in the 'Location: [LoginURL]...' header context */
+	return(apr_uri_unparse(r->pool, &(c->CASLogoutURL), APR_URI_UNP_OMITUSERINFO|APR_URI_UNP_OMITQUERY));
+}
+
+/*
+ * Get the complete URI of the current request, including parameters.
+ */
+char *getCurrentUri(const request_rec *r) {
+	char* rv = apr_pstrcat(r -> pool, r -> uri, NULL);
+
+	if(r -> args != NULL && strlen(r -> args) > 0) {
+		rv = apr_pstrcat(r -> pool, rv, "?", r -> args, NULL);
+	}
+
+	return rv;
+}
+
 /*
  * Responsible for creating the 'service=' parameter.  Constructs this
  * based on the contents of the request_rec because r->parsed_uri lacks
  * information like hostname, scheme, and port.
  */
-char *getCASService(const request_rec *r, const cas_cfg *c)
+char *getCASService(const request_rec *r, const cas_cfg *c, char* uri)
 {
 	const apr_port_t port = r->connection->local_addr->port;
 	const apr_byte_t ssl = isSSL(r);
@@ -556,11 +605,7 @@ char *getCASService(const request_rec *r, const cas_cfg *c)
 #endif
 
 	if (root_proxy->is_initialized) {
-		service = apr_psprintf(r->pool, "%s%s%s%s",
-			escapeString(r, apr_uri_unparse(r->pool, root_proxy, 0)),
-			escapeString(r, r->uri),
-			(r->args != NULL ? "%3f" : ""),
-			escapeString(r, r->args));
+		service = escapeString(r, apr_uri_unparse(r->pool, root_proxy, 0));
 	} else {
 		if (ssl && port == 443)
 			print_port = FALSE;
@@ -572,12 +617,23 @@ char *getCASService(const request_rec *r, const cas_cfg *c)
 
 		service = apr_pstrcat(r->pool, scheme, "%3a%2f%2f",
 			r->server->server_hostname,
-			port_str, escapeString(r, r->uri),
-			(r->args != NULL && *r->args != '\0' ? "%3f" : ""),
-			escapeString(r, r->args), NULL);
+			port_str, NULL);
 	}
+
+	// Support absolute URLs that begin with our hostname. If the URI
+	// starts with the current service fragment, just return the uri.
+	// Otherwise, append the URI to the service.
+	uri = escapeString(r, uri);
+
+	if(strncmp(uri, service, strlen(service)) == 0) {
+		service = uri;
+	} else {
+		service = apr_pstrcat(r -> pool, service, uri, NULL);
+	}
+
 	if (c->CASDebug)
 		ap_log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r, "CAS Service '%s'", service);
+
 	return service;
 }
 
@@ -586,7 +642,7 @@ char *getCASService(const request_rec *r, const cas_cfg *c)
 void redirectRequest(request_rec *r, cas_cfg *c)
 {
 	char *destination;
-	char *service = getCASService(r, c);
+	char *service = getCASService(r, c, getCurrentUri(r));
 	char *loginURL = getCASLoginURL(r, c);
 	char *renew = getCASRenew(r);
 	char *gateway = getCASGateway(r);
@@ -1528,7 +1584,7 @@ apr_byte_t isValidCASTicket(request_rec *r, cas_cfg *c, char *ticket, char **use
 										ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "MOD_AUTH_CAS: unsupported SAML StatusCode");
 										// We can proceed no further, so bail.
 										return FALSE;
-									} 
+									}
 								}
 							}
 						}
@@ -1819,9 +1875,9 @@ char *getResponseFromServer (request_rec *r, cas_cfg *c, char *ticket)
 
 	memcpy(&validateURL, &c->CASValidateURL, sizeof(apr_uri_t));
 	if(c->CASValidateSAML == FALSE)
-		validateURL.query = apr_psprintf(r->pool, "service=%s&ticket=%s%s", getCASService(r, c), ticket, getCASRenew(r));
+		validateURL.query = apr_psprintf(r->pool, "service=%s&ticket=%s%s", getCASService(r, c, getCurrentUri(r)), ticket, getCASRenew(r));
 	else
-		validateURL.query = apr_psprintf(r->pool, "TARGET=%s%s", getCASService(r, c), getCASRenew(r));
+		validateURL.query = apr_psprintf(r->pool, "TARGET=%s%s", getCASService(r, c, getCurrentUri(r)), getCASRenew(r));
 
 	curl_easy_setopt(curl, CURLOPT_URL, apr_uri_unparse(r->pool, &validateURL, 0));
 
@@ -1995,6 +2051,97 @@ void cas_scrub_request_headers(
 	for (i = 0; i < h->nelts; i++) {
 		ap_log_rerror(APLOG_MARK, APLOG_WARNING, 0, r, log_fmt, e[i].key, e[i].val);
 	}
+}
+
+/* Get the URI to which to send clients after logout */
+char *getLogoutRedirectURI(request_rec *r, cas_cfg* c) {
+	char *tokenizer_ctx, *redirectUri, *args, *rv = NULL;
+	const char *param = "redirectUri=";
+	const size_t param_sz = strlen(param);
+
+	// First, try to get it from the "redirectUri" parameter
+	if(r -> args != NULL && strlen(r -> args) > 0) {
+		args = apr_pstrndup(r -> pool, r -> args, strlen(r -> args));
+		redirectUri = apr_strtok(args, "&", &tokenizer_ctx);
+		do {
+			if(redirectUri && strncmp(redirectUri, param, param_sz) == 0) {
+				rv = redirectUri + param_sz;
+				break;
+			}
+
+			redirectUri = apr_strtok(NULL, "&", &tokenizer_ctx);
+		} while(redirectUri);
+	}
+
+	// If we haven't found it, then try to use the referrer if that's enabled.
+	if(rv == NULL && c -> CASLogoutUseReferer) {
+		if(c -> CASDebug) {
+			ap_log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r, "Using referer header to determine redirect URI...");
+		}
+
+		rv = apr_pstrdup(r -> pool, (char *) apr_table_get(r -> headers_in, "Referer"));
+	}
+
+	if(c -> CASDebug && rv != NULL) {
+		ap_log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r, "Determined redirect URI is %s", rv);
+	}
+
+	return rv;
+}
+
+/* Handle requests to logout of the module */
+static int cas_logout_handler(request_rec *r) {
+	cas_cfg* c;
+	cas_dir_cfg* d;
+	char *destination, *logoutUrl, *service, *redirectUri, *cookie;
+	apr_byte_t ssl;
+
+	if(!r -> handler || strcmp(r -> handler, "auth_cas_module")) {
+		return DECLINED;
+	}
+
+	c = ap_get_module_config(r -> server -> module_config, &auth_cas_module);
+
+	logoutUrl = getCASLogoutURL(r, c);
+	redirectUri = getLogoutRedirectURI(r, c);
+
+	// We don't know what to do without any kind of redirect since we don't
+	// display any content, so explode.
+	if(logoutUrl == NULL && redirectUri == NULL) {
+		ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, "No post-login redirect destination specified. Please set CASLogoutURL, CASLogoutUseReferer, or specify a redirectUri.");
+		return HTTP_INTERNAL_SERVER_ERROR;
+	}
+
+	// Load up the cookie we were sent
+	d = ap_get_module_config(r->per_dir_config, &auth_cas_module);
+	ssl = isSSL(r);
+	cookie = getCASCookie(r, (ssl ? d->CASSecureCookie : d->CASCookie));
+
+	// Destroy the cookie if it exists. There's a chance it's already
+	// expired and the browser won't send it, so just ignore a missing
+	// cookie. We're destroying it anyway.
+	if(cookie != NULL) {
+		deleteCASCacheFile(r, cookie);
+		setCASCookie(r, (ssl ? d->CASSecureCookie : d->CASCookie), cookie, ssl, CAS_SESSION_EXPIRE_COOKIE_NOW);
+	}
+
+	// Figure out the redirect destination based on whether they have
+	// a configured redirect URI, a provided redirect URI, or both.
+	if(logoutUrl != NULL && redirectUri != NULL) {
+		service = getCASService(r, c, redirectUri);
+		destination = apr_pstrcat(r->pool, logoutUrl, "?service=", service, NULL);
+	} else if(logoutUrl != NULL) {
+		destination = logoutUrl;
+	} else {
+		destination = redirectUri;
+	}
+
+	if(c -> CASDebug) {
+		ap_log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r, "Redirecting to logout URL %s", destination);
+	}
+
+	apr_table_add(r->headers_out, "Location", destination);
+	return HTTP_MOVED_TEMPORARILY;
 }
 
 /* Normalize a string for use as an HTTP Header Name.  Any invalid
@@ -2338,7 +2485,7 @@ authz_status cas_check_authorization(request_rec *r,
 
 	const char *t, *w;
 	unsigned int count_casattr = 0;
-    
+
 	if(c->CASDebug)
 		ap_log_rerror(APLOG_MARK, APLOG_DEBUG, 0, r,
 			      "Entering cas_check_authorization.");
@@ -2357,9 +2504,9 @@ authz_status cas_check_authorization(request_rec *r,
 			return AUTHZ_GRANTED;
 		}
 	}
-    
+
 	if (count_casattr == 0) {
-		if(c->CASDebug)	
+		if(c->CASDebug)
 			ap_log_rerror(APLOG_MARK, APLOG_WARNING, 0, r,
 				      "'Require cas-attribute' missing specification(s) in configuration. Declining.");
 	}
@@ -2402,7 +2549,6 @@ int cas_authorize(request_rec *r)
 }
 
 /* Pulled out from cas_authorize to enable unit-testing */
-
 int cas_authorize_worker(request_rec *r, const cas_saml_attr *const attrs, const require_line *const reqs, int nelts, const cas_cfg *const c)
 {
 	const int m = r->method_number;
@@ -2770,6 +2916,7 @@ void cas_register_hooks(apr_pool_t *p)
 	ap_hook_check_user_id(cas_authenticate, NULL, NULL, APR_HOOK_MIDDLE);
 #endif
 	ap_hook_post_config(cas_post_config, NULL, NULL, APR_HOOK_LAST);
+	ap_hook_handler(cas_logout_handler, NULL, NULL, APR_HOOK_LAST);
 	ap_register_input_filter("CAS", cas_in_filter, NULL, AP_FTYPE_RESOURCE);
 }
 
@@ -2784,6 +2931,7 @@ const command_rec cas_cmds [] = {
 	AP_INIT_TAKE1("CASSSOEnabled", cfg_readCASParameter, (void *) cmd_sso, RSRC_CONF, "Enable or disable Single Sign Out functionality (On or Off)"),
 	AP_INIT_TAKE1("CASAttributeDelimiter", cfg_readCASParameter, (void *) cmd_attribute_delimiter, RSRC_CONF, "The delimiter to use when setting multi-valued attributes in the HTTP headers"),
 	AP_INIT_TAKE1("CASAttributePrefix", cfg_readCASParameter, (void *) cmd_attribute_prefix, RSRC_CONF, "The prefix to use when setting attributes in the HTTP headers"),
+	AP_INIT_TAKE1("CASLogoutUseReferer", cfg_readCASParameter, (void *) cmd_logout_use_referrer, RSRC_CONF, "Whether or not to redirect back to the referrer after logout"),
 
 	/* ssl related options */
 	AP_INIT_TAKE1("CASValidateDepth", cfg_readCASParameter, (void *) cmd_validate_depth, RSRC_CONF, "Define the number of chained certificates required for a successful validation"),
@@ -2791,6 +2939,7 @@ const command_rec cas_cmds [] = {
 
 	/* pertinent CAS urls */
 	AP_INIT_TAKE1("CASLoginURL", cfg_readCASParameter, (void *) cmd_loginurl, RSRC_CONF, "Define the CAS Login URL (ex: https://login.example.com/cas/login)"),
+	AP_INIT_TAKE1("CASLogoutURL", cfg_readCASParameter, (void *) cmd_logouturl, RSRC_CONF, "Define the CAS Logout URL (ex: https://login.example.com/cas/logout)"),
 	AP_INIT_TAKE1("CASValidateURL", cfg_readCASParameter, (void *) cmd_validateurl, RSRC_CONF, "Define the CAS Ticket Validation URL (ex: https://login.example.com/cas/serviceValidate)"),
 	AP_INIT_TAKE1("CASProxyValidateURL", cfg_readCASParameter, (void *) cmd_proxyurl, RSRC_CONF, "Define the CAS Proxy Ticket validation URL relative to CASServer (unimplemented)"),
 	AP_INIT_TAKE1("CASValidateSAML", cfg_readCASParameter, (void *) cmd_validate_saml, RSRC_CONF, "Whether the CASLoginURL is for SAML validation (On or Off)"),

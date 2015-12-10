@@ -73,12 +73,14 @@
 #define CAS_DEFAULT_RENEW NULL
 #define CAS_DEFAULT_GATEWAY NULL
 #define CAS_DEFAULT_VALIDATE_SAML 0
+#define CAS_DEFAULT_LOGOUT_USE_REFERRER 0
 #define CAS_DEFAULT_ATTRIBUTE_DELIMITER ","
 #define CAS_DEFAULT_ATTRIBUTE_PREFIX "CAS_"
 #define CAS_DEFAULT_VALIDATE_DEPTH 9
 #define CAS_DEFAULT_CA_PATH "/etc/ssl/certs/"
 #define CAS_DEFAULT_COOKIE_PATH "/dev/null"
 #define CAS_DEFAULT_LOGIN_URL NULL
+#define CAS_DEFAULT_LOGOUT_URL NULL
 #define CAS_DEFAULT_VALIDATE_V1_URL NULL
 #define CAS_DEFAULT_VALIDATE_V2_URL NULL
 #define CAS_DEFAULT_VALIDATE_URL CAS_DEFAULT_VALIDATE_V2_URL
@@ -124,12 +126,15 @@ typedef struct cas_cfg {
 	unsigned int CASSSOEnabled;
 	unsigned int CASAuthoritative;
 	unsigned int CASValidateSAML;
+	unsigned int CASLogoutUseReferer;
 	char *CASCertificatePath;
 	char *CASCookiePath;
 	char *CASCookieDomain;
 	char *CASAttributeDelimiter;
 	char *CASAttributePrefix;
 	apr_uri_t CASLoginURL;
+	apr_uri_t CASLogoutURL;
+	apr_uri_t CASLogoutHandlerURL;
 	apr_uri_t CASValidateURL;
 	apr_uri_t CASProxyValidateURL;
 	apr_uri_t CASRootProxiedAs;
@@ -164,10 +169,11 @@ typedef struct cas_curl_buffer {
 
 typedef enum {
 	cmd_version, cmd_debug, cmd_validate_depth, cmd_ca_path, cmd_cookie_path,
-	cmd_loginurl, cmd_validateurl, cmd_proxyurl, cmd_cookie_entropy, cmd_session_timeout,
-	cmd_idle_timeout, cmd_cache_interval, cmd_cookie_domain, cmd_cookie_httponly,
-	cmd_sso, cmd_validate_saml, cmd_attribute_delimiter, cmd_attribute_prefix,
-	cmd_root_proxied_as, cmd_authoritative
+	cmd_loginurl, cmd_logouturl, cmd_validateurl,
+	cmd_proxyurl, cmd_cookie_entropy, cmd_session_timeout, cmd_idle_timeout,
+	cmd_cache_interval, cmd_cookie_domain, cmd_cookie_httponly, cmd_sso,
+	cmd_validate_saml, cmd_attribute_delimiter, cmd_attribute_prefix,
+	cmd_root_proxied_as, cmd_authoritative, cmd_logout_use_referrer
 } valid_cmds;
 
 module AP_MODULE_DECLARE_DATA auth_cas_module;
@@ -193,6 +199,8 @@ apr_byte_t writeCASCacheEntry(request_rec *r, char *name, cas_cache_entry *cache
 char *createCASCookie(request_rec *r, char *user, cas_saml_attr *attrs, char *ticket);
 apr_byte_t isValidCASCookie(request_rec *r, cas_cfg *c, char *cookie, char **user, cas_saml_attr **attrs);
 size_t cas_curl_write(const void *ptr, size_t size, size_t nmemb, void *stream);
+char *getCurrentUri(const request_rec *r);
+char *getLogoutRedirectURI(request_rec *r, cas_cfg* c);
 char *getCASCookie(request_rec *r, char *cookieName);
 char *getCASPath(request_rec *r);
 void CASSAMLLogout(request_rec *r, char *body);
@@ -204,7 +212,8 @@ char *urlEncode(const request_rec *r, const char *str, const char *charsToEncode
 char *getCASGateway(request_rec *r);
 char *getCASRenew(request_rec *r);
 char *getCASLoginURL(request_rec *r, cas_cfg *c);
-char *getCASService(const request_rec *r, const cas_cfg *c);
+char *getCASLogoutURL(request_rec *r, cas_cfg *c);
+char *getCASService(const request_rec *r, const cas_cfg *c, char* uri);
 void redirectRequest(request_rec *r, cas_cfg *c);
 char *getCASTicket(request_rec *r);
 apr_byte_t removeCASParams(request_rec *r);
@@ -220,6 +229,7 @@ void cas_register_hooks(apr_pool_t *p);
 char *getCASScope(request_rec *r);
 void expireCASST(request_rec *r, const char *ticketname);
 void cas_scrub_request_headers(request_rec *r, const cas_cfg *const c, const cas_dir_cfg *const d);
+static int cas_logout_handler(request_rec *r);
 CURLcode cas_curl_ssl_ctx(CURL *curl, void *sslctx, void *parm);
 apr_status_t cas_cleanup(void *data);
 int check_merged_vhost_configs(apr_pool_t *pool, server_rec *s);

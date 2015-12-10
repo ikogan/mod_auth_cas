@@ -1,5 +1,7 @@
 # Apache CAS Authentication Module
 
+[![Build Status](https://travis-ci.org/ikogan/mod_auth_cas.svg?branch=v1.1)](https://travis-ci.org/ikogan/mod_auth_cas)
+
 ## License
 
 Licensed under the Apache License, Version 2.0 (the "License");
@@ -25,7 +27,10 @@ protocol specification is here:
 
 ## Quickstart Installation
 
-The following development libraries and utilities must be installed:
+Binary packages for Red Hat based distributions are available in
+the releases. For other distributions, the package must be compiled
+from source. The following development libraries and utilities must
+be installed:
 
 * OpenSSL - 0.9.8c
 * Apache Portable Runtime - 1.2.8
@@ -33,12 +38,18 @@ The following development libraries and utilities must be installed:
 * Apache Web Server - 2.2.3
 * libcurl - 7.18.2
 * libpcre - 7.8
+* autoconf & automake (as well as the rest of the toolchain)
 
-Download the distribution via git or tarball, and use the standard
-Autoconf incantation:
+Download the distribution via git and use the standard autoconf
+incantation.
 
 ```console
-./configure && make && sudo make install
+libtoolize
+autoreconf --install
+automake --add-missing
+./configure --with-apxs=$(which apxs)
+make
+make install
 ```
 
 Edit your Apache configuration to load the mod_auth_cas module:
@@ -84,20 +95,11 @@ CASValidateSAML On
 
 ## New Features & Functions in this Release
 
-* Unit tests added for a significant portion of functionality.
-* Improved automake support.
-* `CASValidateServer` functionality has been removed.  Users must
-  either fix their SSL certificate configuration using the
-  CASCertificatePath directive, or switch to communicating with
-  the CAS server over standard HTTP.
-* `CASAllowWildcardCert` has been removed, as this has been a no-op for
-  some time (libcurl handles all validation).
-
-## Bug Fixes
-
-* Fixed security bug impacting users of CAS attributes in a CGI
-  environment (MAS-62) reported by Josh Hoyt.
-* Assorted other stability fixes.
+* `CASLogoutURL` and supporting handler for manually logging out
+  of both the module and the CAS server.
+* Travis automated build and deployment.
+* Refactored README into Markdown
+* Merged in RPM spec file from <https://github.com/dhawes/mod_auth_cas>
 
 ## Known Limitations
 
@@ -143,7 +145,7 @@ docker build -t mod_auth_cas-dev .
 Then you can run the container with:
 
 ```console
-docker run -ti -v /path/to/project/root:/data:Z mod_auth_cas-dev
+docker run --rm -ti -v /path/to/project/root:/data:Z mod_auth_cas-dev
 ```
 
 The container includes a full Ubuntu based toolchain and all the
@@ -191,9 +193,13 @@ mod_auth_cas.h
 Use the Apache eXtenSion tool (APXS) to compile and install this
 object as a dynamically shared object (DSO), by either:
 
-`apxs -i -lssl -lcurl -c mod_auth_cas.c`
+```console
+apxs -i -lssl -lcurl -c mod_auth_cas.c
+```
 or
-`apxs2 -i -lssl -lcurl -c mod_auth_cas.c`
+```console
+apxs2 -i -lssl -lcurl -c mod_auth_cas.c
+```
 
 depending on your Linux distribution.
 
@@ -203,15 +209,71 @@ untested and not recommended.  Use the standard commands below to
 compile and install:
 
 ```console
-./configure; make; make install
+libtoolize
+autoreconf --install
+automake --add-missing
+./configure
+make
+make install
 ```
 
 configure can take an optional `--with-apxs=/path/to/apxs argument` to
 specify the path to your APXS binary.
 
+### PACKAGING INSTRUCTIONS
+This release of mod_auth_cas includes build files for Red Hat and compatible
+distributions. Assuming your build server is set up in the standard
+way, place the source tarball in `~/rpmbuild/SOURCES` and also extract
+the contents of the `redhat/` subdirectory into `~/rpmbuild/SOURCES`. Then,
+issue the build command:
+
+```console
+rpmbuild -ba ~/rpmbuild/SPECS/mod_auth_cas.spec
+```
+
+This should spit out a binary RPM for your distribution in:
+
+```console
+~/rpmbuild/RPMS/x86_64/mod_auth_cas-x.x.x-y.rpm
+```
+
+and a source RPM in:
+
+```console
+~/rpmbuild/SRPMS/mod_auth_cas.x.x.x-y.src.rpm
+```
+
+For more information about building RPM packages, please see:
+
+<http://wiki.centos.org/HowTos/SetupRpmBuildEnvironment>
+
+### Travis Automated Builds and Bintray Deployment
+
+This project supports building automatically with Travis as well
+as automatically deploying to Bintray and generating releases. Docker
+is used to perform the actual build since we need an RPM-based distro
+to properly generate CentOS rpms. In order for the deployments to work,
+you'll need to modify the `.travis.yml` and `.bintray.json` files.
+You will need to generate keys for your Github and Bintray
+accounts and update the `subject` of the `.bintray.json` file. Keys
+can be generated as specified [here](https://docs.travis-ci.com/user/environment-variables/),
+in general
+
+```console
+travis encrypt
+```
+
+then paste the generated string into the appropriate place in `.travis.yml`,
+*be mindful of newlines and escape sequences*. The Github API key needs only
+the "public_repos" scope. For Bintray, the package may first need to be created.
+
+TODO: Update this documentation and the files to use Travis repository
+configuration variables instead of having them in `.travis.yml`. It wasn't
+quite working at the time this was written.
+
 ### Configuring the Software
 
-First, you must tell Apache to load the module.  In your `httpd.conf`,
+First, you must tell Apache to load the module. In your `httpd.conf`,
 add:
 
 ```apache
@@ -228,7 +290,85 @@ AuthType CAS
 Be sure to set authorization parameters in the locations you
 are protecting (e.g. `require valid-user`, `require group foo`)
 
-The following are valid configuration options and their default:
+### Logging Out
+
+mod_auth_cas maintains an internal session that expires after a
+configurable period of time. Users logging out of applications or
+out of CAS itself will not be logged out of mod_auth_cas until that
+session expires. mod_auth_cas can be configured to expose a URI
+that will log a user out when their browser is sent to that URI. To
+use this endpoint, add a location like the following:
+
+```apache
+<Location "/logout">
+    SetHandler auth_cas_module
+</Location>
+```
+
+If you would like users sent to this endpoint to also be logged out
+of CAS itself, set the `CASLogoutURL` setting to the logout URL of the
+CAS server. The logout endpoint also supports a `redirectUri` parameter
+that will cause the user to be directed to it's value when CAS logout
+completes. The value can either be a relative URL, or an absolute URL
+*that begins with the same base URL as the location CAS is protecting*. For
+example, for a user going to `http://my.domain.com`, the following are
+valid values for `redirectUri`:
+
+* /
+* /logged-out
+* http://my.domain.com
+* http://my.domain.com/logged-out
+
+The following are not:
+
+* http://my.other.domain.com
+* http://my.other.domain.com/logged-out
+* https://my.domain.com
+* http://my.domain.com:8080
+
+Finally, the `CASLogoutUseReferer` option may be used to pull the
+redirect URI out of the HTTP Referer header. Here is a complete example
+of a simple CAS configuration, this belongs inside of a `<VirtualHost>`:
+
+```apache
+# Load the CAS Module
+LoadModule auth_cas_module /path/to/mod_auth_cas.so
+
+# Configure CAS server URLs
+CASLoginURL https://my.domain.com/cas/login
+CASValidateURL https://my.domain.com/cas/serviceValidate
+CASLogoutURL https://my.domain.com/cas/logout
+
+# Use the referer header to redirect back to the application
+# if no redirectUri is specified.
+CASLogoutUseReferer on
+
+# Make sure this directory is created and properly
+# owned by httpd's user on your system
+CASCookiePath /var/cache/apache2/mod_auth_cas
+
+# Protect all URLs on this server with CAS
+<Location />
+    AuthType CAS
+
+    # All URLs use the same CAS cookie. Be careful
+    # with this in real configurations
+    CASScope /
+
+    Require valid-user
+</Location>
+
+# The "/logout" URL will cause the user to be logged
+# out, configure your applications to send users
+# to /logout?redirectUri=${URL back to your application}
+# to logout properly.
+<Location /logout>
+    SetHandler auth_cas_module
+</Location>
+```
+
+The following are valid configuration options for mod_auth_cas
+and their defaults:
 
 ### Valid Server/VirtualHost Directives
 
@@ -241,7 +381,7 @@ Directive             | Default           | Description
 `CASLoginURL`           | NULL              | The URL to redirect users to when they attempt to access a CAS protected resource and do not have an existing session. The `service`, `renew`, and `gateway` parameters will be appended to this by mod_auth_cas if necessary. Include `http[s]://...`
 `CASValidateURL`        | NULL              | The URL to use when validating a ticket presented by a client in the HTTP query string (`ticket=...`).  Must include `https://` and must be an HTTPS URL.
 `CASLogoutURL`          | NULL              | Optional. The URL to use when logging the user out of the CAS system. Must include `http[s]://`.
-`CASLogoutHandlerURL`   | NULL              | Required only if `CASLogoutURL` is used. Local url at which to handle logout calls. Requests with a valid session made to this URL will cause the session to be terminated and the user to be directed to `CASLogoutURL` if it's set.
+`CASLogoutUseReferer`   | Off               | In the event of a logout with no `redirectUri` specified, try to use the referer to determine where to send the user after a successful logout.
 `CASProxyValidateURL`   | NULL              | The URL to use when performing a proxy validation. This is currently an unimplemented feature, so setting this will have no effect.
 `CASRootProxiedAs`      | NULL              | This URL represents the URL that end users may see in the event that access to this Apache server is proxied.  This will override the automatic generation of service URLs and construct them using this prefix.  As an example: If the site being protected is <http://example.com/> and the Apache instance of this server is <http://internal.example.com:8080>, setting `CASRootProxiedAs` to <http://example.com> would result in proper service parameter generation.
 `CASCookiePath`         | /dev/null         | When users first authenticate to mod_auth_cas with a valid service ticket, a local session is established.  Information about this session (the username, time of creation, last activity time, the resource initially requested, and whether or not the credentials were renewed) is stored in this directory. This location should be writable by the web server ONLY. Any user that can write to this location can falsify authentication information by creating a fake data file. NOTE: Some distributions purge the contents of `/tmp/` on a reboot, including user created directories.  This will prevent mod_auth_cas from storing cookie information until that directory is created. To avoid this, try using a different location, such as `/var/cache/apache2/mod_auth_cas/`

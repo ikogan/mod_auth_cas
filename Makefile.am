@@ -1,23 +1,23 @@
 ACLOCAL_AMFLAGS = -I m4
 AM_CPPFLAGS = @INCLTDL@ @LIBCURL_CPPFLAGS@ -D_LARGEFILE64_SOURCE
 AM_LIBS = @LIBCURL@
-AM_CFLAGS = @TEST_COVERAGE_CFLAGS@ 
+AM_CFLAGS = @TEST_COVERAGE_CFLAGS@
 
 #Set a few distribution variables
 DISTNAME=@PACKAGE_NAME@-@PACKAGE_VERSION@
 DISTDIR=${DISTNAME}
 DISTBALL=${DISTNAME}.tgz
 
-BASEFILES=src/mod_auth_cas.c src/mod_auth_cas.h src/Makefile.in configure.ac config.h.in Makefile.in README README.win32 NOTES
+BASEFILES=src/*.h src/*.c src/Makefile.in configure.ac config.h.in Makefile.in README.md README.win32.md NOTES
 
-DISTFILES=configure ${BASEFILES}
+DISTFILES=configure Makefile.am install-sh config.sub m4/* ltmain.sh libtool compile config.guess missing depcomp ${BASEFILES}
 
 SUBDIRS = src tests
 
 baseclean:  maintainer-clean
 	rm -f Makefile.in configure aclocal.m4 config.guess config.h.in~ config.h.in config.sub depcomp install-sh ltmain.sh missing compile m4/libtool.m4 m4/lt~obsolete.m4 m4/ltoptions.m4 m4/ltsugar.m4 m4/ltversion.m4 test-driver src/Makefile.in src/*.slo tests/Makefile.in src/*.gcda src/*.gcno tests/core.*
 
-	
+
 dist: ${DISTBALL}
 
 ${DISTBALL}:

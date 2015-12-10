@@ -1,0 +1,22 @@
+{
+    "package": {
+        "name": "mod_auth_cas",
+        "subject": "ikogan",
+        "repo": "rpm",
+        "desc": "Apache CAS Authentication Module",
+        "website_url": "https://github.com/ikogan/mod_auth_cas/tree/v1.1",
+        "vcs_url": "https://github.com/ikogan/mod_auth_cas.git",
+        "licenses": ["ASL 2.0"],
+        "labels": ["apache", "cas", "sso"]
+    },
+
+    "version": {
+        "name": "1.1.1"
+    },
+
+    "files": [
+        { "includePattern": "dist/RPMS/*/(.*.rpm)", "uploadPattern": "$1" }
+    ],
+
+    "publish": true
+}

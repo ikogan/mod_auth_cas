@@ -5,7 +5,9 @@ MAINTAINER NOTES
 * "make baseclean" purges auto* artifacts, leaving only the minimal base
 
 * From a baseclean, "autoreconf" (part of auto* suite) will generate auto* artifacts.  So, from a baseclean
-  $> autoreconf
+  $> libtoolize
+  $> autoreconf --install
+  $> automake --add-missing
   $> ./configure #--with-apxs, --with-openssl
   $> make
   $> make install # DESTDIR=/absolute/path/to/alternate/destination/directory

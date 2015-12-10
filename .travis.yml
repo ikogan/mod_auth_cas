@@ -1,0 +1,31 @@
+sudo: required
+env:
+- OS_TYPE=CentOS OS_VERSION=6
+services:
+- docker
+langauge: c
+before_install:
+- docker build -t mod_auth_cas-dev -f docker/Dockerfile-$OS_TYPE$OS_VERSION docker
+script:
+- docker run --rm --name=mod_auth_cas-dev -v $(pwd):/data:Z mod_auth_cas-dev
+before_deploy:
+    - sudo chown -Rv $USER dist
+deploy:
+    - provider: releases
+      api_key:
+          - secure: "QDfIWPuhUyaP7TWwxA4RXuBZ/GVEQ47fqMrSjMCUgWKvFaJ34JHIkJXaYqVcYm9CYEuECFHP/miu0skDGmFbJySl/X+UcaqWae6wn4yDL/pktgIWuhiHiIMCdlbtcjo+ug3KiSBhZKesNT4pW8paR49UYl9idT+1zrt6+syuSoEX/w4kZgeCe2FlD20dNitaX0rO+LPTeEFMjjnxDrWmXsm/SVm3IhDi5zyZURRyb2mFQPMvHCtjKhlQ549vxu6Dc1lww9Tg0XpWo1p3Cc+t2VPhDngKE8qVGt9oGJHy3az6o9GSrNJztheX3/8IyudcN0ZWA8CU7BY5UHPhVMUrlIHh28ToeDRlYwSWSZYduIzIhRdfrEG03nBRi0CZZplKowGGO8PzGmRX5fy+0pFQ1i2TDSC5zUbxDkYTMnp4nYCHk2Bk8i9mtEfSEZhDWuGqndPQmTs4+TsYFjVAmiL99GNNHi5w428kXL/ZqBirbtk5hljzqgo2teKVfQGsUv177sKBSJ9RZK7hhZEWZMkXZU1nMebio0a8hh5o7XpU6C7z8z//5Y+KNTEItJkgK5HSyZfitg3rTRlE5TW2GN3RjkJNjKUr3kiSYlnofienQdwfQdjVPyDV2rJIASBWSxI5KL8j4T6tmF9V6DHqnQH2AXU19bn5z3nMHyIhjV+xZOk="
+      skip_cleanup: true
+      file_glob: true
+      file:
+          - "dist/SRPMS/*.rpm"
+          - "dist/RPMS/*/*.rpm"
+      on:
+          tags: true
+    - provider: bintray
+      file: ".bintray.json"
+      user: "ikogan"
+      key:
+          - secure: "MhDmr5KuX6+Sh7wti7HsvZF7gzoJKn5inMJtD6eOiHWVxWi5xI7illLDyOuTxGdGkTUEB3cqoDFfTn6FXQeON53VoIT149zLaTOJ8RSQ+HMAPfkNCtMb99xkRNnIY+fo74aE6DLVt4BfRVZk+24IWUV+hgAlMDCPMFrUPAuX7QrZfZH9SHm+Y2dIAkdPHZqcAq+I0ZsMQ5S1ZOu+3TBXSdU8eY//SFvSHiAG8Y4PZEdOpL8KLb9sHr/xH1NqmcmEtpUUJkawN9Z1H19rfMRo7QcfN10vJwVRxWtSUncCts6tsv7ZuLAiWEkTfTzlJkoH/DBVnzdfhVj0evY7cAmuHMYDtlgaBAOeL1c32msnGLng+EPd6zx6Of8u0GEQWIQF4VlnE9sjCMXTFjIBqy0myxwPDNPBB5B1cKhCdX67eAksQHZWZ9sau9ahTt6+aGilL9AoA56nhrm34dQ1K0jIgAQGHLIg5JR40nmrEM3/cSGW4wVYRGjg6QhyMOVA6l5w61cz7CkG7iRDznr3hLhV3BZDbIQrXc9BlBRGwNGGkcGx4XntZ/Vw49xoQp2STEBilxMAoSMdKKUSYp0lG1QVFEMdRVm0K0ByiyEUutpZUR0/zJUN96nwsJCqomVnjzUHf4dDeu1YFBpVHqvYCWhXFTeuc3xI8wkgpdGGnDBcBDM="
+      skip_cleanup: true
+      on:
+          tags: true

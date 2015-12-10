@@ -1,0 +1,11 @@
+FROM centos:6
+
+RUN yum install -y httpd-devel which openssl-devel libcurl-devel pcre-devel tar gzip redhat-rpm-config rpm-build libtool
+
+RUN mkdir -p ~/rpmbuild/{BUILD,RPMS,SOURCES,SRPMS} && echo '%_topdir %(echo $HOME)/rpmbuild' > ~/.rpmmacros
+
+COPY build.sh /root/build.sh
+
+RUN chmod +x /root/build.sh
+
+CMD /root/build.sh
