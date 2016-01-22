@@ -345,7 +345,7 @@ CASLogoutUseReferer on
 
 # Make sure this directory is created and properly
 # owned by httpd's user on your system
-CASCookiePath /var/cache/apache2/mod_auth_cas
+CASCookiePath /var/cache/apache2/mod_auth_cas/
 
 # Protect all URLs on this server with CAS
 <Location />
