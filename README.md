@@ -419,5 +419,5 @@ via email if you have questions, feedback, code submissions,
 and bug reports.  To reach the development team, send an e-mail to:
 
 ```
-mod-auth-cas-dev [at] lists [dot] jasig [dot] org
+cas-user [at] aspero [dot] org
 ```
